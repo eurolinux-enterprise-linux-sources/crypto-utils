@@ -1,0 +1,7 @@
+
+This directory holds autoconf macros which are used in several
+packages in the tree.  To use the macros run 
+
+   aclocal -l /path/to/this/dir
+
+to scoop them all up into your aclocal.m4.

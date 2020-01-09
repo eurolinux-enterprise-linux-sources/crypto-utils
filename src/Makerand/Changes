@@ -1,0 +1,6 @@
+Revision history for Perl extension Stronghold::Makerand.
+
+0.01  Sat Mar 10 19:00:15 2001
+	- original version; created by h2xs 1.20 with options
+		-x -d -n Stronghold::Makerand /home/mark/work/remote-cvs/srpms/crypto-utils/crypto-utils/librand/rand
+

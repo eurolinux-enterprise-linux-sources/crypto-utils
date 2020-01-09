@@ -1,0 +1,52 @@
+
+AC_INIT(librand/randbyte.c)
+
+AC_CONFIG_HEADER(config.h)
+
+AC_PROG_CC
+AC_PROG_MAKE_SET
+AC_PROG_RANLIB
+
+# md5.c:
+# HIGHFIRST
+# ASM_MD5 (never defined)
+# PUREC
+
+AC_MSG_CHECKING(whether sigsetjmp works)
+
+AC_TRY_RUN([
+#include <setjmp.h>
+sigjmp_buf env;
+int set = 1;
+
+int main()
+{
+        if (sigsetjmp(env,1))
+                exit(set);
+        set = 0;
+        siglongjmp(env,1);
+        exit(1);
+}
+]
+,
+AC_DEFINE(HAVE_SIGSETJMP, 1, [Have working sigsetjmp])
+AC_MSG_RESULT(yes), 
+AC_MSG_RESULT(no))
+
+AC_C_BIGENDIAN
+if test "$ac_cv_c_bigendian" = "yes"; then
+	CFLAGS="$CFLAGS -DHIGHFIRST"
+fi
+
+CFLAGS="$CFLAGS -DUNIX -I`pwd`"
+
+# Be careful not to pass down any optimisation flags to librand.
+changequote(<<,>>)
+LIBRAND_CFLAGS=`echo $CFLAGS | sed -e "s/-O[^ ]*//g"`
+changequote([,])
+AC_SUBST(LIBRAND_CFLAGS)
+
+INCLUDES="-I`pwd`"
+AC_SUBST(INCLUDES)
+
+AC_OUTPUT(librand/Makefile)
