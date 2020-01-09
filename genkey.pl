@@ -43,6 +43,7 @@ $cadir = "$ssltop/CA";
 use Crypt::Makerand;
 use Newt;
 use Getopt::Long;
+use File::Temp qw/ tempfile /;
 
 sub InitRoot
 {
@@ -130,6 +131,7 @@ my $modNssDbDir = '';
 my $nssNickname = '';
 my $nssDBPrefix = '';
 my $gdb = '';
+my $hashalg = "SHA256";
 GetOptions('test|t' => \$test_mode, 
            'genreq' => \$genreq_mode,
            'days=i' => \$cert_days,
@@ -341,18 +343,18 @@ sub NextBackCancelButton {
 
 # Require that this Apache module (mod_nss or mod_ssl) be installed
 sub requireModule {
-
-    my $module = $nss ? "mod_nss" : "mod_ssl";	
-    my $not_installed_msg = `rpm -q $module | grep "not installed"`;
+    if ($nss) {
+        my $not_installed_msg = `rpm -q mod_nss | grep "not installed"`;
 	
 	if ($not_installed_msg) {
-        Newt::newtWinMessage("Error", "Close", 
-        "$not_installed_msg".
-        "\nIt is required to generate this type of CSRs or certs".
-        "for this host:\n\nPress return to exit");
-        Newt::Finished();
-        exit 1;
-    }	
+            Newt::newtWinMessage("Error", "Close",
+                                 "$not_installed_msg".
+                                 "\nIt is required to generate this type of CSRs or certs ".
+                                 "for this host.\n\nPress return to exit");
+            Newt::Finished();
+            exit 1;
+        }
+    }
 }
 
 # Check that nss.conf exists
@@ -361,7 +363,7 @@ sub nssconfigFound {
     if (!$nssconf || !(-f $nssconf)) {
         # do an rpm query
         my $cmd = 'rpm -ql mod_nss';
-        my $tmplist = "list";
+        ($fh, $tmplist) = tempfile("list.XXXXXX");
         system("$cmd > $tmplist");
         $nssconf = `grep nss.conf $tmplist`;
         unlink($tmplist);
@@ -374,7 +376,7 @@ sub getModNSSDatabase {
    
     # Extract the value from the mod_nss configuration file.
     my $cmd ='/usr/bin/gawk \'/^NSSCertificateDatabase/ { print $2 }\'' . " $nssconf"; 
-    my $dbfile = "dbdirectory";
+    ($fh, $dbfile) = tempfile("dbdirectory.XXXXXX");
     system("$cmd > $dbfile");
     open(DIR, "<$dbfile");
     my $dbdir = '';
@@ -390,7 +392,7 @@ sub getNSSNickname {
 
     # Extract the value from the mod_nss configuration file.
     my $cmd ='/usr/bin/gawk \'/^NSSNickname/ { print $2 }\'' . " $nssconf";
-    my $nicknamefile = "nssnickname";
+    ($fh, $nicknamefile) = tempfile("nssnickname.XXXXXX");
     system("$cmd > $nicknamefile");
     open(NICK, "<$nicknamefile");  
     my $nickname = ''; 
@@ -404,7 +406,7 @@ sub getNSSDBPrefix {
 
     # Extract the value from the mod_nss configuration file.
     my $cmd ='/usr/bin/gawk \'/^NSSDBPrefix/ { print $2 }\'' . " $nssconf";
-    my $prefixfile = "dbprefix";
+    ($fh, $prefixfile) = tempfile("dbprefix.XXXXXX");
     system("$cmd > $prefixfile");
     open(PREFIX, "<$prefixfile");
     my $prefix = '';
@@ -452,6 +454,22 @@ sub keyInDatabase {
     my $tmp = "tmp";
     my $answer = `$bindir/certutil -L -d $dbdir | grep $nickname`;
     return $answer;
+}
+
+# Pick an appropriate hashing function for the key length
+# Ideally we should be able to depend on upstream behaviour and drop this,
+# but upstream's default was not changed from SHA-1 in a timely fashion:
+# https://bugzilla.mozilla.org/show_bug.cgi?id=1058933
+sub getHashForKeyLength {
+    use integer;
+    # See http://csrc.nist.gov/publications/nistpubs/800-131A/sp800-131A.pdf
+    # and http://csrc.nist.gov/publications/nistpubs/800-57/sp800-57_part1_rev3_general.pdf
+    $hashalg = "SHA256";
+    if ($bits > 7680) {
+        $hashalg = "SHA512";
+    } elsif ($bits > 3072) {
+        $hashalg = "SHA384";
+    }
 }
 
 ######################################################################
@@ -516,18 +534,17 @@ sub getkeysizeWindow()
     my $title= <<EOT;
 Choose the size of your key. The smaller the key you choose the faster
 your server response will be, but you'll have less security. Keys of
-less than 1024 bits are easily cracked.  Keys greater than 1024 bits
-don't work with all currently available browsers. 
+less than 1024 bits are easily cracked.
 
-We suggest you select the default, 1024 bits
+We suggest you select the default, 2048 bits.
 EOT
     my $panel = Newt::Panel(1, 3, "Choose key size");
     my $listbox = Newt::Listbox(5, 0);
     my $text = Newt::Textbox(70, 6, 0, $title);
     my @listitems = ("512 (insecure)",
-		     "1024 (medium-grade, fast speed) [RECOMMENDED]",
-		     "2048 (high-security, medium speed)",
-		     "4096 (paranoid-security, tortoise speed)",
+		     "1024 (low-grade, fast speed)",
+		     "2048 (medium-security, medium speed) [RECOMMENDED]",
+		     "4096 (high-security, slow speed)",
 		     "Choose your own");
 
     $listbox->Append(@listitems);
@@ -536,7 +553,7 @@ EOT
     $panel->Add(0, 1, $listbox, 0, 0, 1);
     $panel->Add(0, 2, NextBackCancelButton());
     
-    Newt::newtListboxSetCurrent($listbox->{co}, 1);
+    Newt::newtListboxSetCurrent($listbox->{co}, 2);
 
     $panel->Draw();
 
@@ -557,6 +574,8 @@ EOT
 	}
     }
 
+    getHashForKeyLength();
+
     $panel->Hide();
     undef $panel;
     return $ret;
@@ -572,9 +591,8 @@ sub customKeySizeWindow()
 
     $title = <<EOT;
 Select the exact key size you want to use. Note that some browsers do
-not work correctly with arbitrary key sizes. For maximum compatibility
-you should use 512 or 1024, and for a reasonable level of security you
-should use 1024.
+not work correctly with arbitrary key sizes.  For a reasonable level
+of security you should use 2048.
 EOT
 
     $panel = Newt::Panel(1, 3, "Select exact key size");
@@ -601,6 +619,8 @@ EOT
 	    $bits = 0;
 	}
     } while ($bits < $minbits || $bits > $maxbits);
+    
+    getHashForKeyLength();
     
     $panel->Hide();
     undef $panel;
@@ -919,7 +939,9 @@ EOT
 
     return $ret if ($ret eq "Back" or $ret eq "Cancel");
 
-    $keyEncPassword = $pass1;
+    # FIXME: Ugly, should use perl system() correctly.
+    $pass1 =~ s/"/\\\"/g;
+    $keyEncPassword = "\"". $pass1. "\"";
 
     return "Next";
 }
@@ -975,10 +997,14 @@ sub makeCertNSS
     $args .= "-d $modNssDbDir "; 
     $args .= "-p $nssDBPrefix " if $nssDBPrefix;
     $args .= "-o $certfile " if $certfile;
+    $args .= "-Z $hashalg ";
     
     nssUtilCmd("$bindir/certutil", $args);
 
-    unlink($noisefile);
+    if ($noisefile) {
+        unlink($noisefile);
+        $noisefile = '';
+    }
     
     if ($certfile && !-f $certfile) {
         Newt::newtWinMessage("Error", "Close", 
@@ -1011,10 +1037,14 @@ sub genRequestNSS
     $args .= "-v $months ";
     $args .= "-z $noisefile " if $noisefile;
     $args .= "-o $csrfile ";
+    $args .= "-Z $hashalg ";
     
     nssUtilCmd("$bindir/certutil", $args);
 
-    unlink($noisefile);
+    if ($noisefile) {
+        unlink($noisefile);
+        $noisefile = '';
+    }
     
     if (!-f $csrfile) {
         Newt::newtWinMessage("Error", "Close", 
@@ -1054,7 +1084,7 @@ sub makeCertOpenSSL
         Newt::newtWinMessage("Error", "Close", 
                  "Was not able to create a certificate for this ".
                  "host:\n\nPress return to exit");
-        unlink($noisefile);
+        unlink($noisefile) if $noisefile;
         Newt::Finished();
         exit 1;
     }
@@ -1064,11 +1094,14 @@ sub makeCertOpenSSL
                              "Could not set permissions of private key file.\n".
                              "$keyfile");
            Newt::Finished();
-           unlink($noisefile);
+           unlink($noisefile) if $noisefile;
            exit 1;
         }
     }
-    unlink($noisefile);
+    if ($noisefile) {
+        unlink($noisefile);
+        $noisefile = '';
+    }
 }
 
 # Create a certificate-signing request file that can be submitted to a 
@@ -1097,7 +1130,10 @@ sub genRequestOpenSSL
  
     nssUtilCmd("$bindir/keyutil", $args);
          
-    unlink($noisefile);
+    if ($noisefile) {
+        unlink($noisefile);
+        $noisefile = '';
+    }
     Newt::Resume();
     
     if (!-f $csrfile) {
@@ -1142,6 +1178,7 @@ sub renewCertNSS
     $args   .= "-f $pwdfile "   if $pwdfile;
     $args   .= "-v $months ";
     $args   .= "-o $csrfile ";
+    $args   .= "-Z $hashalg ";
     
     nssUtilCmd("$bindir/certutil", $args);
     
@@ -1174,10 +1211,9 @@ sub renewCertOpenSSL
     $args   .= "--filepwdnss $pwdfile " if $pwdfile;    
     $args   .= "--validity $months "; 
     $args   .= "--out $csrfile ";
- 
+    
     nssUtilCmd("$bindir/keyutil", $args);
          
-    unlink($noisefile);
     Newt::Resume();
     
     if (!-f $csrfile) {
@@ -1284,6 +1320,11 @@ sub getCertDetails
     $cert{'O'} = $ents{'O'}->Get();
     $cert{'OU'} = $ents{'OU'}->Get();
     $cert{'CN'} = $ents{'CN'}->Get();
+
+    # Escape commas
+    foreach my $part (keys %cert) {
+        $cert{$part} =~ s/,/\\\\,/g;
+    }
 
     # Build the subject from the details
     
@@ -1415,20 +1456,13 @@ sub genReqWindow
                           $subject, 730, $randfile, $tmpPasswordFile);
     }
     
-# Now make a temporary cert
 
-    if (!$genreq_mode) {
-	    if (!-f $certfile) {
-            if ($nss) {
-                makeCertNSS($certfile,
-                            $subject, $cert_days, $nssNickname,
-                            $randfile, $tmpPasswordFile); 
-            } else {
-                makeCertOpenSSL($keyfile,$certfile,
-                                $subject, $cert_days,
-                                $randfile, $tmpPasswordFile);
-            }
-        }
+    # Now make a temporary cert; skip for OpenSSL since it would
+    # overwrite the existing key.
+    if (!$genreq_mode && !-f $certfile && $nss) {
+        makeCertNSS($certfile,
+                    $subject, $cert_days, $nssNickname,
+                    $randfile, $tmpPasswordFile);
     }
     
     undef $csrtext;

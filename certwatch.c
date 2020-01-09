@@ -65,7 +65,7 @@
  * ***** END LICENSE BLOCK ***** */
 
 
-/* $Id: certwatch.c,v 1.12 2009/10/09 17:08:18 dgregor Exp $ */
+/* $Id: certwatch.c,v 1.20 2009/01/29 22:15:33 emaldonado Exp $ */
 
 /* Certificate expiry warning generation code, based on code from
  * Stronghold.  Joe Orton <jorton@redhat.com> */

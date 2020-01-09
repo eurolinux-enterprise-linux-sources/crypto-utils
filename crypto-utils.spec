@@ -4,7 +4,7 @@
 Summary: SSL certificate and key management utilities
 Name: crypto-utils
 Version: 2.4.1
-Release: 24.2%{?dist}
+Release: 24.3%{?dist}
 Source: crypto-rand-%{crver}.tar.gz
 Source1: genkey.pl
 Source2: certwatch.c
@@ -27,9 +27,9 @@ Source18: copying
 Group: Applications/System
 License: MIT and GPLv2+
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root
-BuildRequires: nss-devel, pkgconfig, newt-devel, xmlto
+BuildRequires: nss-devel >= 3.13.1, nss-util-devel >= 3.13.1, pkgconfig, newt-devel, xmlto
 BuildRequires: perl-devel, perl(Newt), perl(ExtUtils::MakeMaker)
-Requires: perl(Newt), nss >= 3.12.2
+Requires: perl(Newt), nss >= 3.13.1, nss-util >= 3.13.1
 Requires: %(eval `perl -V:version`; echo "perl(:MODULE_COMPAT_$version)")
 Obsoletes: crypto-rand
 
@@ -44,19 +44,25 @@ SSL certificates and keys.
 %configure --with-newt=%{_prefix} CFLAGS="$CFLAGS -fPIC"
 make -C librand
 
-cc $RPM_OPT_FLAGS -Wall -Werror -I/usr/include/nspr4 -I/usr/include/nss3 \
-   $RPM_SOURCE_DIR/certwatch.c $RPM_SOURCE_DIR/pemutil.c \
-   -o certwatch -lnspr4 -lnss3
 
-cc $RPM_OPT_FLAGS -Wall -Werror -I/usr/include/nspr4 -I/usr/include/nss3 \
-   $RPM_SOURCE_DIR/keyutil.c \
-   $RPM_SOURCE_DIR/certext.c \
-   $RPM_SOURCE_DIR/secutil.c \
-   $RPM_SOURCE_DIR/secerror.c \
-   -o keyutil -lnspr4 -lnss3
+mkdir srcs
+pushd srcs
+ for f in certwatch.c keyrand.c pemutil.c keyutil.c certext.c secutil.c \
+    keyutil.h secutil.h NSPRerrs.h SECerrs.h; do
+    cp -p $RPM_SOURCE_DIR/$f $f
+ done
 
-cc $RPM_OPT_FLAGS -Wall -Werror \
-   $RPM_SOURCE_DIR/keyrand.c -o keyrand -lnewt
+ cc $RPM_OPT_FLAGS -Wall -Werror=implicit-function-declaration -Werror -I/usr/include/nspr4 -I/usr/include/nss3 \
+     certwatch.c pemutil.c \
+    -o certwatch -lnspr4 -lnss3
+
+ cc $RPM_OPT_FLAGS -Wall -Werror=implicit-function-declaration -Werror -I/usr/include/nspr4 -I/usr/include/nss3 \
+     keyutil.c certext.c secutil.c \
+   -o keyutil -lplc4 -lnspr4 -lnss3
+
+ cc $RPM_OPT_FLAGS -Wall -Werror \
+    keyrand.c -o keyrand -lnewt -lslang
+popd
 
 date +"%e %B %Y" | tr -d '\n' > date.xml
 echo -n %{version} > version.xml
@@ -93,10 +99,10 @@ mkdir -p $RPM_BUILD_ROOT%{_sysconfdir}/cron.daily \
          $RPM_BUILD_ROOT%{_bindir}
 
 # install keyrand
-install -c -m 755 keyrand $RPM_BUILD_ROOT%{_bindir}/keyrand
+install -c -m 755 srcs/keyrand $RPM_BUILD_ROOT%{_bindir}/keyrand
 
 # install certwatch
-install -c -m 755 certwatch $RPM_BUILD_ROOT%{_bindir}/certwatch
+install -c -m 755 srcs/certwatch $RPM_BUILD_ROOT%{_bindir}/certwatch
 install -c -m 755 $RPM_SOURCE_DIR/certwatch.cron \
    $RPM_BUILD_ROOT%{_sysconfdir}/cron.daily/certwatch
 for f in certwatch genkey keyrand; do 
@@ -104,7 +110,7 @@ for f in certwatch genkey keyrand; do
 done
 
 # install keyutil
-install -c -m 755 keyutil $RPM_BUILD_ROOT%{_bindir}/keyutil
+install -c -m 755 srcs/keyutil $RPM_BUILD_ROOT%{_bindir}/keyutil
 
 # install genkey
 sed -e "s|^\$bindir.*$|\$bindir = \"%{_bindir}\";|" \
@@ -131,6 +137,14 @@ chmod -R u+w $RPM_BUILD_ROOT
 %{perl_vendorarch}/auto/Crypt
 
 %changelog
+* Fri Dec 18 2015 Joe Orton <jorton@redhat.com> - 2.4.1-24.3
+- fix segfaults in keyutil (#870182)
+- keyutil: use SHA256 by default, SHA384 or 512 for larger keys (#1146247)
+- genkey: update SHA choice, default key sizes (#1146247)
+- genkey: only fail in --nss mode if mod_nss is missing. (#845940)
+- update reqs/BRs for new-enough nss-util (#1146247)
+- certwatch: fix failure for certfiles containing private keys (#893308)
+
 * Thu Jun 24 2010 Joe Orton <jorton@redhat.com> - 2.4.1-24.2
 - added dist to Release (#604535)
 
