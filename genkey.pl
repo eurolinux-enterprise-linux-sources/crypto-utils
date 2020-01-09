@@ -517,18 +517,17 @@ sub getkeysizeWindow()
     my $title= <<EOT;
 Choose the size of your key. The smaller the key you choose the faster
 your server response will be, but you'll have less security. Keys of
-less than 1024 bits are easily cracked.  Keys greater than 1024 bits
-don't work with all currently available browsers. 
+less than 1024 bits are easily cracked.
 
-We suggest you select the default, 1024 bits
+We suggest you select the default, 2048 bits.
 EOT
     my $panel = Newt::Panel(1, 3, "Choose key size");
     my $listbox = Newt::Listbox(5, 0);
     my $text = Newt::Textbox(70, 6, 0, $title);
     my @listitems = ("512 (insecure)",
-		     "1024 (medium-grade, fast speed) [RECOMMENDED]",
-		     "2048 (high-security, medium speed)",
-		     "4096 (paranoid-security, tortoise speed)",
+		     "1024 (low-grade, fast speed)",
+		     "2048 (medium-security, medium speed) [RECOMMENDED]",
+		     "4096 (high-security, slow speed)",
 		     "Choose your own");
 
     $listbox->Append(@listitems);
@@ -537,7 +536,7 @@ EOT
     $panel->Add(0, 1, $listbox, 0, 0, 1);
     $panel->Add(0, 2, NextBackCancelButton());
     
-    Newt::newtListboxSetCurrent($listbox->{co}, 1);
+    Newt::newtListboxSetCurrent($listbox->{co}, 2);
 
     $panel->Draw();
 
@@ -573,9 +572,8 @@ sub customKeySizeWindow()
 
     $title = <<EOT;
 Select the exact key size you want to use. Note that some browsers do
-not work correctly with arbitrary key sizes. For maximum compatibility
-you should use 512 or 1024, and for a reasonable level of security you
-should use 1024.
+not work correctly with arbitrary key sizes.  For a reasonable level
+of security you should use 2048.
 EOT
 
     $panel = Newt::Panel(1, 3, "Select exact key size");
@@ -920,7 +918,9 @@ EOT
 
     return $ret if ($ret eq "Back" or $ret eq "Cancel");
 
-    $keyEncPassword = $pass1;
+    # FIXME: Ugly, should use perl system() correctly.
+    $pass1 =~ s/"/\\\"/g;
+    $keyEncPassword = "\"". $pass1. "\"";
 
     return "Next";
 }
@@ -979,7 +979,10 @@ sub makeCertNSS
     
     nssUtilCmd("$bindir/certutil", $args);
 
-    unlink($noisefile);
+    if ($noisefile) {
+        unlink($noisefile);
+        $noisefile = '';
+    }
     
     if ($certfile && !-f $certfile) {
         Newt::newtWinMessage("Error", "Close", 
@@ -1015,7 +1018,10 @@ sub genRequestNSS
     
     nssUtilCmd("$bindir/certutil", $args);
 
-    unlink($noisefile);
+    if ($noisefile) {
+        unlink($noisefile);
+        $noisefile = '';
+    }
     
     if (!-f $csrfile) {
         Newt::newtWinMessage("Error", "Close", 
@@ -1055,7 +1061,7 @@ sub makeCertOpenSSL
         Newt::newtWinMessage("Error", "Close", 
                  "Was not able to create a certificate for this ".
                  "host:\n\nPress return to exit");
-        unlink($noisefile);
+        unlink($noisefile) if $noisefile;
         Newt::Finished();
         exit 1;
     }
@@ -1065,11 +1071,14 @@ sub makeCertOpenSSL
                              "Could not set permissions of private key file.\n".
                              "$keyfile");
            Newt::Finished();
-           unlink($noisefile);
+           unlink($noisefile) if $noisefile;
            exit 1;
         }
     }
-    unlink($noisefile);
+    if ($noisefile) {
+        unlink($noisefile);
+        $noisefile = '';
+    }
 }
 
 # Create a certificate-signing request file that can be submitted to a 
@@ -1098,7 +1107,10 @@ sub genRequestOpenSSL
  
     nssUtilCmd("$bindir/keyutil", $args);
          
-    unlink($noisefile);
+    if ($noisefile) {
+        unlink($noisefile);
+        $noisefile = '';
+    }
     Newt::Resume();
     
     if (!-f $csrfile) {
@@ -1175,10 +1187,10 @@ sub renewCertOpenSSL
     $args   .= "--filepwdnss $pwdfile " if $pwdfile;    
     $args   .= "--validity $months "; 
     $args   .= "--out $csrfile ";
- 
+    ### pass $noisefile?
+
     nssUtilCmd("$bindir/keyutil", $args);
          
-    unlink($noisefile);
     Newt::Resume();
     
     if (!-f $csrfile) {
@@ -1285,6 +1297,11 @@ sub getCertDetails
     $cert{'O'} = $ents{'O'}->Get();
     $cert{'OU'} = $ents{'OU'}->Get();
     $cert{'CN'} = $ents{'CN'}->Get();
+
+    # Escape commas
+    foreach my $part (keys %cert) {
+        $cert{$part} =~ s/,/\\\\,/g;
+    }
 
     # Build the subject from the details
     
@@ -1415,23 +1432,15 @@ sub genReqWindow
         genRequestOpenSSL($keyfile, $csrfile,
                           $subject, 730, $randfile, $tmpPasswordFile);
     }
-    
-# Now make a temporary cert
 
-    if (!$genreq_mode) {
-	    if (!-f $certfile) {
-            if ($nss) {
-                makeCertNSS($certfile,
-                            $subject, $cert_days, $nssNickname,
-                            $randfile, $tmpPasswordFile); 
-            } else {
-                makeCertOpenSSL($keyfile,$certfile,
-                                $subject, $cert_days,
-                                $randfile, $tmpPasswordFile);
-            }
-        }
+    # Now make a temporary cert; skip for OpenSSL since it would
+    # overwrite the existing key.
+    if (!$genreq_mode && !-f $certfile && $nss) {
+        makeCertNSS($certfile,
+                    $subject, $cert_days, $nssNickname,
+                    $randfile, $tmpPasswordFile);
     }
-    
+
     undef $csrtext;
     open(CSR,"<$csrfile");
     while(<CSR>) {

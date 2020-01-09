@@ -4,7 +4,7 @@
 Summary: SSL certificate and key management utilities
 Name: crypto-utils
 Version: 2.4.1
-Release: 39%{?dist}
+Release: 42%{?dist}
 
 Group: Applications/System
 License: MIT and GPLv2+ and MPLv1.0
@@ -127,6 +127,23 @@ chmod -R u+w $RPM_BUILD_ROOT
 %{perl_vendorarch}/auto/Crypt
 
 %changelog
+* Thu Feb 13 2014 Joe Orton <jorton@redhat.com> - 2.4.1-42
+- genkey: skip cert generation after CSR for OpenSSL (#1039896)
+- keyutil: fix error reporting (#1039896)
+
+* Fri Jan 24 2014 Daniel Mach <dmach@redhat.com> - 2.4.1-41
+- Mass rebuild 2014-01-24
+
+* Wed Jan 22 2014 Joe Orton <jorton@redhat.com> - 2.4.1-40.2
+- genkey: further improvement to wording around key size (#1039896)
+
+* Wed Jan 22 2014 Joe Orton <jorton@redhat.com> - 2.4.1-40.1
+- keyutil: use SHA1 as default hash in created certs (#1030470)
+- genkey: default to 2048 bit keysize (#1039896)
+
+* Fri Dec 27 2013 Daniel Mach <dmach@redhat.com> - 2.4.1-40
+- Mass rebuild 2013-12-27
+
 * Sat Feb 23 2013 Elio Maldonado <emaldona@redhat.com> - 2.4.1-39
 - Resolves: rhbz#862430 - CVE-2012-3504 - insecure temporary file usage in genkey
 
